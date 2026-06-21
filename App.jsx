@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Leaf, Flame, Trophy, Check, Zap } from "lucide-react";
 
 import BackgroundPosters from "./components/BackgroundPosters.jsx";
@@ -14,17 +14,6 @@ import Toast from "./components/Toast.jsx";
 
 import { INITIAL_LEDGER, INITIAL_ACTIONS } from "./data/mockData.js";
 
-/**
- * App — The State Matrix Orchestrator
- * -------------------------------------------------------------------------
- * Owns every cross-cutting piece of state: the view lifecycle
- * (AUTH -> ONBOARDING -> DASHBOARD), the daily carbon threshold, the
- * active ledger history, gamification counters (XP, streak, rank,
- * total offset), and the global toast queue. Child components are pure
- * presentational + local-UI-state only; everything that must persist or
- * cascade is funneled back up through callback props.
- */
-
 const VIEWS = {
   AUTH: "AUTH",
   ONBOARDING: "ONBOARDING",
@@ -32,23 +21,58 @@ const VIEWS = {
 };
 
 export default function App() {
-  const [view, setView] = useState(VIEWS.AUTH);
+  // Sync view status cleanly on cold boot setups
+  const [view, setView] = useState(() => {
+    return localStorage.getItem("ecoloop_view") || VIEWS.AUTH;
+  });
 
-  // Core carbon + gamification state
-  const [dailyBudget, setDailyBudget] = useState(20);
-  const [usedToday, setUsedToday] = useState(12.4);
-  const [streak, setStreak] = useState(5);
+  const [dailyBudget, setDailyBudget] = useState(() => {
+    return Number(localStorage.getItem("ecoloop_budget")) || 20;
+  });
+
+  const [usedToday, setUsedToday] = useState(() => {
+    return Number(localStorage.getItem("ecoloop_used")) || 12.4;
+  });
+
+  const [streak, setStreak] = useState(() => {
+    return Number(localStorage.getItem("ecoloop_streak")) || 5;
+  });
+
+  const [totalOffset, setTotalOffset] = useState(() => {
+    return Number(localStorage.getItem("ecoloop_offset")) || 42;
+  });
+
+  const [xp, setXp] = useState(() => {
+    return Number(localStorage.getItem("ecoloop_xp")) || 0;
+  });
+
+  const [ledger, setLedger] = useState(() => {
+    const activeData = localStorage.getItem("ecoloop_ledger");
+    return activeData ? JSON.parse(activeData) : INITIAL_LEDGER;
+  });
+
+  const [actions, setActions] = useState(() => {
+    const activeActions = localStorage.getItem("ecoloop_actions");
+    return activeActions ? JSON.parse(activeActions) : INITIAL_ACTIONS;
+  });
+
   const [streakBumped, setStreakBumped] = useState(false);
-  const [totalOffset, setTotalOffset] = useState(42);
   const [rank, setRank] = useState(14);
   const [sessionGain, setSessionGain] = useState(0);
-  const [xp, setXp] = useState(0);
-
-  const [ledger, setLedger] = useState(INITIAL_LEDGER);
-  const [actions, setActions] = useState(INITIAL_ACTIONS);
   const [toasts, setToasts] = useState([]);
-
   const toastId = useRef(0);
+
+  // Synchronize state layers onto disk arrays dynamically
+  useEffect(() => {
+    localStorage.setItem("ecoloop_view", view);
+    localStorage.setItem("ecoloop_budget", dailyBudget);
+    localStorage.setItem("ecoloop_used", usedToday);
+    localStorage.setItem("ecoloop_streak", streak);
+    localStorage.setItem("ecoloop_offset", totalOffset);
+    localStorage.setItem("ecoloop_xp", xp);
+    localStorage.setItem("ecoloop_ledger", JSON.stringify(ledger));
+    localStorage.setItem("ecoloop_actions", JSON.stringify(actions));
+  }, [view, dailyBudget, usedToday, streak, totalOffset, xp, ledger, actions]);
 
   function pushToast(message, Icon) {
     const id = ++toastId.current;
@@ -72,11 +96,10 @@ export default function App() {
     if (!streakBumped) {
       setStreak((s) => s + 1);
       setStreakBumped(true);
-      setTimeout(() => pushToast("Streak extended — keep it going!", Flame), 450);
+      setTimeout(() => pushToast("Streak extended — daily ecosystem loop locked!", Flame), 450);
     }
   }
 
-  // --- lifecycle transitions -------------------------------------------
   function handleAuthenticated() {
     setView(VIEWS.ONBOARDING);
   }
@@ -85,18 +108,16 @@ export default function App() {
     setDailyBudget(budget);
     setUsedToday(used);
     setView(VIEWS.DASHBOARD);
-    setTimeout(() => pushToast("Baseline calibrated — welcome to the loop.", Check), 300);
+    setTimeout(() => pushToast("Baseline calibrated via semantic indexing models.", Check), 300);
   }
 
-  // --- omni-logger -------------------------------------------------------
   function handleLog(entry) {
     setLedger((prev) => [entry, ...prev]);
     registerGain(entry.impact);
-    setXp((x) => x + Math.round(entry.impact * 4));
+    setXp((x) => x + Math.round(entry.impact * 12));
     pushToast(`Logged: −${entry.impact}kg CO2`, Leaf);
   }
 
-  // --- micro-action feed --------------------------------------------------
   function handleToggleExpand(actionId) {
     setActions((prev) =>
       prev.map((a) => (a.id === actionId ? { ...a, expanded: !a.expanded } : a))
@@ -120,7 +141,7 @@ export default function App() {
         label: action.title,
         impact: action.impact,
         category: action.category,
-        methodology: "Manual commitment to a recommended micro-action.",
+        methodology: "Manual commitment to a targeted carbon optimization strategy.",
         pivot: action.why,
         confidence: 100,
         time: "Just now",
@@ -134,26 +155,23 @@ export default function App() {
   const pct = Math.min(100, (usedToday / dailyBudget) * 100);
 
   return (
-    <div className="min-h-screen w-full text-stone-100 relative" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div className="min-h-screen w-full text-stone-100 relative bg-[#0A0807] overflow-x-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
       <BackgroundPosters />
 
       {view === VIEWS.AUTH && <AuthGate onAuthenticated={handleAuthenticated} />}
       {view === VIEWS.ONBOARDING && <Onboarding onComplete={handleCalibrationComplete} />}
 
       {view === VIEWS.DASHBOARD && (
-        <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in">
           <Header xp={xp} />
 
-          {/* Hero Insights Hub */}
           <section className="grid grid-cols-1 lg:grid-cols-5 gap-5 mb-6">
-            <div className="lg:col-span-2 bg-earth-900/60 border border-earth-700 rounded-2xl p-6 flex flex-col items-center justify-center">
+            <div className="lg:col-span-2 bg-[#14100E]/80 border border-earth-700 rounded-2xl p-6 flex flex-col items-center justify-center backdrop-blur-md shadow-xl">
               <ProgressRing used={usedToday} budget={dailyBudget} size={192} />
-              <div className="mt-5 w-full bg-clay-600/10 border border-clay-600/30 rounded-xl px-4 py-2.5 flex items-center gap-2.5">
-                <Zap className="w-4 h-4 text-clay-400 flex-shrink-0" />
-                <p className="text-xs text-clay-200 leading-snug">
-                  ≈ <span className="font-semibold">{(usedToday / 0.85).toFixed(1)} hrs</span> of
-                  continuous AC use, or{" "}
-                  <span className="font-semibold">{(usedToday / 0.39).toFixed(1)} mi</span> not driven.
+              <div className="mt-5 w-full bg-[#BD5B38]/10 border border-[#BD5B38]/30 rounded-xl px-4 py-2.5 flex items-center gap-2.5">
+                <Zap className="w-4 h-4 text-clay-500 flex-shrink-0" />
+                <p className="text-xs text-stone-300 leading-snug">
+                  ≈ <span className="font-semibold text-clay-400">{(usedToday / 0.85).toFixed(1)} hrs</span> of continuous household thermal load.
                 </p>
               </div>
             </div>
@@ -163,14 +181,13 @@ export default function App() {
               <StatCard icon={Leaf} label="Total Offset" value={`${totalOffset.toFixed(1)} kg`} />
               <StatCard icon={Trophy} label="Leaderboard Rank" value={`#${rank}`} />
 
-              <div className="sm:col-span-3 bg-earth-900/60 border border-earth-700 rounded-2xl p-5">
+              <div className="sm:col-span-3 bg-[#14100E]/80 border border-earth-700 rounded-2xl p-5 backdrop-blur-md">
                 <p className="text-sm text-stone-400 leading-relaxed">
-                  You're{" "}
-                  <span className="text-clay-400 font-medium">
+                  You are running{" "}
+                  <span className="text-clay-500 font-bold">
                     {pct < 100 ? `${(100 - pct).toFixed(0)}% under` : "at"}
                   </span>{" "}
-                  your daily budget. Log an action below or commit to a micro-action to keep
-                  today's loop closing.
+                  allocated metrics. Execute context logging tasks below or complete a micro-action profile card.
                 </p>
               </div>
             </div>
@@ -189,8 +206,8 @@ export default function App() {
             <EcoGuilds rank={rank} totalOffset={totalOffset} />
           </section>
 
-          <footer className="text-center text-[11px] text-stone-600 mt-10">
-            EcoLoop AI — every action closes the loop.
+          <footer className="text-center text-[11px] text-stone-600 mt-10 tracking-widest uppercase font-mono">
+            EcoLoop AI • Culturally Rooted Infrastructure
           </footer>
         </div>
       )}
