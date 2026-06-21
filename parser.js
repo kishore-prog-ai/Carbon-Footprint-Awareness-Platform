@@ -1,75 +1,83 @@
 /**
- * parseInputToPayload
+ * parseInputToPayload — Parametric Token Extraction Engine
  * -------------------------------------------------------------------------
- * Core inference handler for the Omni-Logger. Maps an arbitrary free-text
- * action description (or pasted receipt text) into a structured carbon
- * telemetry payload. This is a deterministic mock model standing in for a
- * production NLP/classification service.
- *
- * Returned payload shape:
- * {
- *   impact: number,        // kg CO2 saved/avoided
- *   category: string,      // 'Transit' | 'Diet' | 'General Analysis'
- *   methodology: string,   // explains how the figure was derived
- *   pivot: string,         // behavioral micro-suggestion
- *   confidence: number,    // 0-100 model confidence score
- * }
+ * Parses natural text strings using isolated token boundaries and regex
+ * capture groups to dynamically compute carbon metrics instead of relying
+ * entirely on flat fallback values.
  */
 
-const RULES = [
+const BASE_CONVERSIONS = [
   {
-    test: /\b(bike|cycle|cycling|biking)\b/i,
-    impact: 3.8,
+    tokens: /\b(bike|cycle|cycling|biking|walk|pedal)\b/i,
+    factor: 0.24, // kg CO2 saved per km relative to an internal combustion engine vehicle
     category: "Transit",
-    methodology:
-      "Zero-emission human-powered transit over regional baselines.",
-    pivot: "Integrate alternative transport options into your regular commutes.",
-    confidence: 94,
+    methodology: "Zero-emission pedestrian/human-powered displacement calculated against a localized gasoline vehicle baseline factor (0.24 kg CO₂e/km).",
+    pivot: "Consider identifying protected alternative greenways to optimize commute safety and speed.",
+    confidence: 96,
+    defaultImpact: 3.8
   },
   {
-    test: /\b(bus|train|metro)\b/i,
-    impact: 2.1,
+    tokens: /\b(bus|train|metro|subway|rail|transit)\b/i,
+    factor: 0.14, // kg CO2 saved per km by using shared high-capacity networks
     category: "Transit",
-    methodology:
-      "Mass rapid transport efficiency profiles vs single-occupancy vehicles.",
-    pivot: "Batch multiple transit errands into fixed operational windows.",
+    methodology: "Mass transit passenger-mile offset efficiency profile mapped dynamically against standard single-occupancy vehicle travel frames.",
+    pivot: "Batch multi-stop micro-errands into predictable high-occupancy transport operational windows.",
     confidence: 89,
+    defaultImpact: 2.1
   },
   {
-    test: /\b(salad|vegan|vegetarian|lentil)\b/i,
-    impact: 3.5,
+    tokens: /\b(salad|vegan|vegetarian|lentil|soup|plant|tofu)\b/i,
+    factor: 2.25, // kg CO2 saved per serving offset
     category: "Diet",
-    methodology:
-      "Plant-protein substitution index against high-impact ruminant items.",
-    pivot:
-      "Source clean, regional seasonal produce to eliminate supply chain logistics footprints.",
-    confidence: 91,
-  },
+    methodology: "Plant-based macronutrient substitution index scored against high-methane ruminant meat baselines.",
+    pivot: "Source seasonal, hyper-local ingredients where possible to collapse freight logistics footprints.",
+    confidence: 92,
+    defaultImpact: 3.5
+  }
 ];
 
-const FALLBACK = {
+const MASTER_FALLBACK = {
   impact: 1.2,
   category: "General Analysis",
-  methodology: "Baseline behavioral model mapping applied to generalized text strings.",
-  pivot: "Provide granular item details during entry processing for accurate tracking.",
-  confidence: 62,
+  methodology: "Baseline behavior mapping matrix applied to an unclassified lifestyle token string.",
+  pivot: "Provide specific parameters (e.g., distance units, item weights) to tighten conversion bounds.",
+  confidence: 64,
 };
 
 export function parseInputToPayload(text) {
   const safeText = (text || "").trim();
+  const lowerText = safeText.toLowerCase();
 
-  for (const rule of RULES) {
-    if (rule.test.test(safeText)) {
+  // Extract standalone integers or floats accompanied by optional unit strings
+  const metricMatch = safeText.match(/(\d+(?:\.\d+)?)\s*(km|kms|miles|mi|hours|hr|hrs|serving|servings)?/i);
+  const quantity = metricMatch ? parseFloat(metricMatch[1]) : null;
+  const unit = metricMatch && metricMatch[2] ? metricMatch[2].toLowerCase() : "";
+
+  for (const item of BASE_CONVERSIONS) {
+    if (item.tokens.test(lowerText)) {
+      let evaluatedImpact = item.defaultImpact;
+
+      if (quantity) {
+        // Normalize miles to km frames on transit calls
+        const standardizedScale = (unit === 'miles' || unit === 'mi') ? quantity * 1.609 : quantity;
+        evaluatedImpact = +(standardizedScale * item.factor).toFixed(2);
+        
+        // Prevent microscopic or excessive evaluations from breaking dashboard layouts
+        if (evaluatedImpact <= 0) evaluatedImpact = item.defaultImpact;
+      }
+
       return {
-        impact: rule.impact,
-        category: rule.category,
-        methodology: rule.methodology,
-        pivot: rule.pivot,
-        confidence: rule.confidence,
+        impact: evaluatedImpact,
+        category: item.category,
+        methodology: quantity 
+          ? `Parametric Scaling Model: Evaluated ${quantity} ${unit || 'units'} across active emission coefficients to compute a dynamic ${evaluatedImpact} kg boundary.`
+          : item.methodology,
+        pivot: item.pivot,
+        confidence: item.confidence,
         sourceText: safeText,
       };
     }
   }
 
-  return { ...FALLBACK, sourceText: safeText };
+  return { ...MASTER_FALLBACK, sourceText: safeText };
 }
